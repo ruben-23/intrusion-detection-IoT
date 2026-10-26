@@ -1,145 +1,125 @@
 # Edge IDS pentru Rețele IoT: Sistem Inteligent de Detecție a Intruziunilor
 
-Barieră inteligentă de securitate la marginea rețelei (Edge Computing) concepută pentru a monitoriza traficul generat de dispozitive IoT, a detecta botnet-uri și intruziuni în timp real și a izola autonom nodurile infectate înainte de propagarea atacului.
+## 1. Descrierea scenariului
 
-Proiectul utilizează setul de date **CICIoT2023** și integrează un pipeline hibrid compus din inferență Edge AI de joasă latență, mecanisme automate de carantină prin firewall și un modul agentic bazat pe **GraphRAG** și **Model Context Protocol (MCP)** pentru audit și explicabilitate în limbaj natural.
+Proiectul urmărește construirea unui sistem IoT distribuit pentru detecția și izolarea automată a atacurilor cibernetice (botnet-uri precum Mirai, DoS, Reconnaissance) direct la marginea rețelei (Edge Computing).
+
+Sistemul colectează fluxuri de rețea simulate de la dispozitive periferice, le trimite către un Edge Gateway care agregă datele în ferestre glisante și rulează un model de Machine Learning optimizat. Dacă se detectează un atac, gateway-ul izolează autonom dispozitivul compromis și raportează alerta către o platformă cloud. Un tablou de bord permite vizualizarea incidentelor, iar un agent inteligent oferă suport decizional.
+
 
 ---
-<!-- 
-## Arhitectura Hardware
+## 2. Obiectivele proiectului
 
-Sistemul este distribuit pe patru componente hardware distincte:
-
-| Componentă | Hardware | Rol & Responsabilități |
-| --- | --- | --- |
-| **Dispozitive Periferice** | Raspberry Pi #2 & #3 | Rulează scripturi de replay (`device_node.py`) pentru a reda trafic benign și atacuri simulate (Mirai, DoS, Recon) din CICIoT2023.
-
-| **Gateway & Edge IDS** | Raspberry Pi #1 | Recepție asincronă a pachetelor, gestionare cozi FIFO per dispozitiv, inferență ONNX (< 5 ms) și izolare prin `iptables`.
-
- |
-| **Cloud / Backend** | Server Linux OCI | Broker Mosquitto, API central FastAPI, baze de date pentru serii de timp și stocare pe graf.
-
- |
-| **Consolă Administrator** | Laptop | Tablou de bord în timp real dezvoltat în Streamlit, interfațat cu un asistent LLM pentru investigații.
-
- | -->
+### Obiective obligatorii (MVP)
 
 
 
-## Arhitectura Hardware
+- [ ] Simularea a minimum 2 senzori/dispozitive IoT care redau trafic din setul de date CICIoT2023.
 
-Sistemul este distribuit pe patru componente hardware distincte:
-| Componentă | Hardware | Rol și responsabilități |
-|---|---|---|
-| **Dispozitive periferice** | Raspberry Pi #2 și #3 | Rulează scripturile de replay (`device_node.py`) pentru a reproduce trafic benign și atacuri simulate (Mirai, DoS, Recon) din setul de date CICIoT2023. |
-| **Gateway și Edge IDS** | Raspberry Pi #1 | Asigură recepția asincronă a pachetelor, gestionarea cozilor FIFO per dispozitiv, inferența ONNX (sub 5 ms) și izolarea dispozitivelor prin `iptables`. |
-| **Cloud / Backend** | Server Linux OCI | Găzduiește brokerul Mosquitto, API-ul central bazat pe FastAPI, bazele de date pentru serii temporale și sistemul de stocare a datelor sub formă de graf. |
-| **Consolă administrator** | Laptop | Oferă un tablou de bord în timp real, dezvoltat cu Streamlit, integrat cu un asistent LLM pentru investigații. |
+- [ ] Transmiterea asincronă a datelor către un Edge Gateway.
+- [ ] Calcularea metricilor de rețea pe ferestre glisante (sliding windows) la nivel edge.
+- [ ] Executarea inferenței Edge AI pentru clasificarea traficului (Benign vs. Malițios).
+- [ ] Izolarea automată a traficului (drop socket / iptables) în caz de anomalie.
+- [ ] Transmiterea alertelor structurate către un backend REST/FastAPI.
+- [ ] Dezvoltarea unui dashboard în Streamlit pentru monitorizarea live.
 
 ---
+- [ ] În prima fază a proiectului, dispozitivele IoT vor reda caracteristicile (features) din dataset gata agregate. 
+- [ ] Inițial vor fi utilizate doar 1 sau 2 tipuri de atacuri pentru antrenare și testare.
+---
 
-## Fluxul de Prelucrare la Nivel de Gateway
+### Obiective opționale
 
-```
-[ Dispozitive IoT ] (Raspberry Pi #2 / #3)
-         │
-         ▼ (Trafic TCP/UDP)
-[ 1. Receptie Asincronă & Cozi FIFO per IP ] (device_buffers[ip])
-         │
-         ▼ (Fereastră glisantă - ex: 1s)
-[ 2. Extragere Vector Numeric ] (pachete/s, IAT, dimensiune medie/std, flag-uri TCP)
-         │
-         ▼ (Inferență locală < 5ms)
-[ 3. Model Edge AI (ONNX / Scikit-learn) ]
-         │
-    ┌────┴───────────────────────────┐
-    ▼                                ▼
-[ Benign ]                     [ Malițios ]
-    │                                ├─ Drop buffer[cite: 6]
-    │                                ├─ Blocare IP & socket (`iptables`)[cite: 6, 7]
-    ▼                                ▼
-Transmisie date normale        Alertă critică JSON către FastAPI[cite: 6, 7]
+- [ ] Rularea proceselor pe calculatoare fizice distincte (ex. 3x Raspberry Pi + 1x Server Linux).
+- [ ] Reconstruirea requesturile din traficul original (brut) capturat în timpul atacurilor, renunțând la caracteristicile gata agregate.
+- [ ] Extinderea sistemului prin adăugarea opțională a celorlalte tipuri de atacuri disponibile în dataset.
+- [ ] Implementarea unui broker MQTT (Mosquitto) pentru comunicația hibridă.
+- [ ] Optimizarea modelului ML în format ONNX pentru latențe de sub 5 ms.
 
-```
+### Obiectiv AI / LLM 
 
-1. **Recepție și Buffer per Nod:** Conexiunile sunt ascultate asincron. Pachetele sunt grupate per IP într-un cache circular de tip FIFO (`device_buffers[ip]`) pentru a preveni epuizarea memoriei în scenarii de DoS.
+Integrarea unui asistent conversațional folosind **Model Context Protocol (MCP)** și **GraphRAG**.
 
-
-2. **Fereastră Glisantă & Extragere Statistici:** La fiecare secundă, bufferul generează un vector unidimensional compus din:
-* Număr de pachete pe secundă;
-
-
-* Dimensiunea medie a pachetelor și deviația standard;
-
-
-* Timpul scurs între pachete (Inter-Arrival Time - IAT);
-
-
-* Distribuția flag-urilor TCP.
-
-
-
-
-3. **Inferență Edge AI:** Vectorul este clasificat local folosind un model ONNX / Scikit-learn optimizat pentru un timp de răspuns sub 5 ms.
-
-
-4. **Acțiune și Carantină:**
-* **Benign:** Păstrează starea nodului `NORMAL` și transmite metricile agregate către cloud.
-
-
-* **Malițios:** Golește bufferul afectat, blochează traficul de la IP-ul respectiv prin reguli dinamice de `iptables`, închide socket-ul și notifică backend-ul.
-
-
+Exemple:
+- „De ce a fost izolat dispozitivul Camera_01 astăzi la ora 14:10?”
+- „Afișează istoricul atacurilor de tip DoS din ultimele 24 de ore.”
 
 
 
 ---
-<!-- 
-## Structura Proceselor Software (Python)
+## 3. Arhitectura propusă
 
-Aplicația este structurată în 5 procese obligatorii, distribuite modular:
+Fluxul de date este structurat pe 5 procese Python independente:
 
-| ID | Fișier / Proces | Nod gazdă | Tehnologii cheie | Descriere |
-|---|---|---|---|---|
-| **P1** | `device_node.py` | Raspberry Pi #2 și #3 | Sockets UDP/TCP, JSON, `paho-mqtt` | Simulează traficul IoT prin replay din CICIoT2023 și ascultă semnalele de oprire. |
-| **P2** | `gateway_proxy.py` | Raspberry Pi #1 | `asyncio`, ONNX Runtime, `iptables` | Gestionează cozile FIFO, extrage vectorii de caracteristici, execută inferența AI și aplică măsurile de carantină. |
-| **P3** | `backend_api.py` | Server Linux OCI | FastAPI, Pydantic, WebSockets | Primește alertele în format JSON, validează datele și propagă evenimentele către dashboard. |
-| **P4** | `storage_service.py` | Server Linux OCI | TSDB, Graph Database, GraphRAG | Persistă seriile temporale și relațiile din graf pentru audit și acces la contextul istoric. |
-| **P5** | `dashboard_app.py` | Laptop administrator | Streamlit, Model Context Protocol (MCP) | Oferă o interfață pentru vizualizarea în timp real și o consolă pentru interogarea incidentelor prin intermediul unui agent LLM. |
---- -->
+**Dispozitive Periferice → Edge Gateway (IDS) → Cloud/Backend → Frontend & Agent**
 
-## Nivelul Agentic: GraphRAG & MCP
+| Componentă | Responsabilitate |
+|---|---|
+| **Dispozitiv (RPi 2/3)** | Redă fluxuri din CICIoT2023 (Benign/Atac) și ascultă comenzi. |
+| **Gateway (RPi 1)** | Multiplexare asincronă, extragere features, Edge AI, actuare (firewall). |
+| **Backend (Server)** | API FastAPI, validare Pydantic, expunere WebSockets, broker MQTT. |
+| **Stocare (Server)** | DB Serii de timp (metrici) + Graf de cunoștințe (Topologie & Taxonomie atacuri). |
+| **Frontend (Laptop)** | Streamlit Dashboard (harta rețelei, grafice live) și consola LLM. |
 
-Pentru a depăși limitările alertelor simple bazate pe ID-uri și scoruri brute, sistemul include un asistent capabil să explice deciziile de securitate în limbaj natural direct în Streamlit:
+---
+## 4. Dataset utilizat
 
-```
-[ Operator ] ──> Întrebare: "De ce a fost deconectat nodul Raspberry Pi #2?"
-                       │
-                       ▼
-                 [ Agent LLM ]
-                       │
-            ┌──────────┴──────────┐
-            ▼                     ▼
-     [ Server MCP ]        [ GraphRAG ]
-     (Alerte & loguri)     (Profiluri noduri & semnături CICIoT2023)
-            │                     │
-            └──────────┬──────────┘
-                       ▼
-[ Răspuns Explicativ ]: "Dispozitivul a generat un atac Mirai-SYN_Flood (+300% SYN flags fată de profilul legitim). Carantina a fost aplicată automat."
+Proiectul utilizează **CICIoT2023**, un dataset standardizat ce conține trafic IoT generat de dispozitive reale aflate sub diverse categorii de atac cibernetic.
 
-```
+* **Caracteristici:** 46 de metrici statistice de rețea (ex. pachete/secundă, mărime medie, flag-uri TCP). 
 
-1. **Protocol MCP:** Oferă LLM-ului acces securizat la unelte pentru citirea stării curente, a jurnalelor și a alertelor brute sosite de la Gateway.
+    *Notă: În prima fază, dispozitivele vor transmite direct aceste caracteristici gata agregate.*
+* **Clase:** Benign + 7 categorii de atac (Mirai, DoS, DDoS, Recon, Web, Brute Force, Spoofing). 
+    
+    *Notă: În etapa inițială (MVP) se vor folosi doar 1-2 tipuri de atacuri, restul putând fi activate opțional ulterior.*
 
 
-2. **GraphRAG:** Interoghează un graf de cunoștințe ce corelează profilul de trafic de bază al fiecărui dispozitiv cu semnăturile atacurilor din setul CICIoT2023.
+---
+## 5. Identificarea anomaliilor (Edge AI)
+
+**Mecanismul de detecție:** Model de Machine Learning (LightGBM/Random Forest) antrenat pe datele CICIoT2023
+
+### Pașii de procesare la margine:
+
+1. Pachetele intră într-o coadă circulară (buffer RAM cu limită strictă per dispozitiv).
+
+2. La fiecare secundă (fereastră glisantă), se extrage vectorul cu cele 46 de caracteristici (sau se citește direct vectorul agregat, în prima fază a proiectului).
+
+3. Dacă modelul returnează o clasă de atac (ex. `Mirai`), Gateway-ul aruncă pachetele, taie conexiunea socket și raportează alerta.
+
+---
 
 
-3. **Explicabilitate:** Rezultatul combină anomaliile observate (ex: deviații de IAT, flood de pachete) cu justificarea blocării IP-ului.
+## 6. Integrare LLM (GraphRAG & MCP)
+
+Agentul nu doar răspunde la întrebări, ci și analizează cauza incidentelor:
+
+1. Utilizatorul pune o întrebare în interfață.
+
+2. LLM-ul apelează unelte expuse prin **Model Context Protocol (MCP)** pentru a interoga baza de date de serii de timp.
+
+3. Sistemul consultă graful de cunoștințe (**GraphRAG**) pentru a compara comportamentul așteptat al dispozitivului cu semnătura atacului (Mirai, DoS).
+
+4. Răspunsul este fundamentat strict pe datele rețelei și taxonomiile din CICIoT2023, fiind afișat în panou.
+
+
+---
+## 7. Tehnologii și API-uri
+
+| Componentă | Tehnologie propusă |
+| --- | --- |
+| Edge ML Runtime | Scikit-learn, ONNX Runtime |
+| Gateway Concurrency | Python `asyncio`<br> |
+| IoT Messaging | Sockets UDP/TCP, Paho MQTT |
+| Backend & API | FastAPI, Uvicorn, Pydantic |
+| Baze de Date | SQLite/InfluxDB + Neo4j (Graf) |
+| Frontend | Streamlit, WebSockets |
+| Integrare LLM | MCP Server (Python), OpenAI/Local API |
+| Actuare OS | iptables (Linux Firewall) |
 
 --- 
 
-## Referințe 
+## 8. Referințe 
 
 
 1. [IoT Security: Risks, Challenges, and Best Practices in Securing the IoT](https://www.digi.com/blog/post/iot-security)
